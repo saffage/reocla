@@ -25,6 +25,7 @@ where
 #[derive(Default)]
 struct AoclaCtx {
     stack: Stack,
+    handlers: HashMap<String, Object>,
     proc: HashMap<String, Proc>,
     frame: ProcFrame,
     cur_proc_name: Option<String>,
@@ -91,6 +92,8 @@ impl AoclaCtx {
         self.add_rust_proc("while", proc_while);
         self.add_rust_proc("len", proc_len);
         self.add_rust_proc("eval", proc_eval);
+        self.add_rust_proc("catch", proc_catch);
+        self.add_rust_proc("throw", proc_throw);
         self.add_string_proc("dup", "(x) $x $x")?;
         self.add_string_proc("swap", "(x y) $y $x")?;
         self.add_string_proc("drop", "(_)")?;
@@ -215,6 +218,10 @@ fn proc_arithmetic(ctx: &mut AoclaCtx) -> Result {
     let (Object::Int(b), Object::Int(a)) = (b_obj, a_obj) else {
         return Err(error!("Both objects must be of type Int"));
     };
+
+    if b == 0 {
+        return throw(ctx, "div-by-zero");
+    }
 
     ctx.stack.push(Object::Int(match ctx.cur_proc_name()? {
         "+" => a + b,
@@ -525,6 +532,56 @@ fn proc_eval(ctx: &mut AoclaCtx) -> Result {
         return Err(error!("Only objects of type List can be evaluated"));
     }
     ctx.eval(&obj)
+}
+
+fn proc_catch(ctx: &mut AoclaCtx) -> Result {
+    let Object::Tuple(mut tag_pairs, false) = ctx.stack.pop()? else {
+        return Err(error!("'catch' expects tuple of handlers ('sym [...])"));
+    };
+
+    let old_handlers = ctx.handlers.clone();
+
+    if tag_pairs.is_empty() {
+        return Err(error!("'catch' expected at least 1 handler"));
+    }
+    loop {
+        let Some(sym) = tag_pairs.pop() else {
+            break;
+        };
+        let Object::Sym(sym, true) = sym else {
+            return Err(error!("expected handler to have tag (symbol)"));
+        };
+        let Some(handler) = tag_pairs.pop() else {
+            return Err(error!("expected even elements count for handler"));
+        };
+        let Object::List(handler_block) = handler else {
+            return Err(error!("expected even elements count for handler"));
+        };
+        ctx.handlers.insert(sym, Object::List(handler_block));
+    }
+
+    let try_block @ Object::List(_) = ctx.stack.pop()? else {
+        return Err(error!("'catch' expects list to try"));
+    };
+
+    ctx.eval(&try_block)?;
+    ctx.handlers = old_handlers;
+
+    Ok(())
+}
+
+fn proc_throw(ctx: &mut AoclaCtx) -> Result {
+    let Object::Sym(tag, false) = ctx.stack.pop()? else {
+        return Err(error!("'throw' expects tag to catch"));
+    };
+    throw(ctx, &tag)
+}
+
+fn throw(ctx: &mut AoclaCtx, tag: &str) -> std::result::Result<(), AoclaError> {
+    match ctx.handlers.get(tag) {
+        Some(handler_block) => ctx.eval(&handler_block.clone()),
+        None => Err(error!("unhandled exception '{tag}")),
+    }
 }
 
 fn eval_file<P>(filename: P) -> Result

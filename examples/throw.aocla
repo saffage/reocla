@@ -1,0 +1,25 @@
+[(n a) $n $a / $a * $n =] 'is-multiple-of proc
+
+[(n)
+    [$n 3 is-multiple-of $n 5 is-multiple-of and]
+    ['fizz-buzz throw]
+    [
+        [$n 3 is-multiple-of]
+        ['fizz throw]
+        [
+            [$n 5 is-multiple-of]
+            ['buzz throw]
+            [$n println] ifelse
+        ] ifelse
+    ] ifelse
+] 'fizz-buzz proc
+
+1 (n)
+[$n 100 <] [
+    [$n fizz-buzz] '(
+        ["Fizz" println] 'fizz
+        ["Buzz" println] 'buzz
+        ["FizzBuzz" println] 'fizz-buzz
+    ) catch
+    $n 1 + (n)
+] while

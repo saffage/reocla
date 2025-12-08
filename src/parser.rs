@@ -67,7 +67,8 @@ fn parse_bool(i: &str) -> IResult<&str, bool> {
 }
 
 fn parse_sym(i: &str) -> IResult<&str, (String, bool)> {
-    let (s, (q, sym)) = pair(opt(char('\'')), map(parse_sym_lit, |s| s.to_owned()))(i)?;
+    let (s, (q, sym)) =
+        pair(opt(char('\'')), map(parse_sym_lit, |s| s.to_owned()))(i)?;
     Ok((s, (sym, q.is_some())))
 }
 

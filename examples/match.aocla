@@ -1,0 +1,5 @@
+'sym '(
+    [0 println]
+    [1 println] 'sym
+    [2 println] 'str
+) match

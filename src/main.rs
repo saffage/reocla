@@ -94,6 +94,7 @@ impl AoclaCtx {
         self.add_rust_proc("eval", proc_eval);
         self.add_rust_proc("catch", proc_catch);
         self.add_rust_proc("throw", proc_throw);
+        self.add_rust_proc("match", proc_match);
         self.add_string_proc("dup", "(x) $x $x")?;
         self.add_string_proc("swap", "(x y) $y $x")?;
         self.add_string_proc("drop", "(_)")?;
@@ -575,6 +576,40 @@ fn proc_throw(ctx: &mut AoclaCtx) -> Result {
         return Err(error!("'throw' expects tag to catch"));
     };
     throw(ctx, &tag)
+}
+
+fn proc_match(ctx: &mut AoclaCtx) -> Result {
+    let Ok(Object::Tuple(mut clauses, _)) = ctx.stack.pop() else {
+        return Err(error!("'match' expects tuple of clauses"));
+    };
+    let Ok(Object::Sym(subject, _)) = ctx.stack.pop() else {
+        return Err(error!("'match' clause expects subject (sym)"));
+    };
+
+    while let Some(tag_or_list) = clauses.pop() {
+        match tag_or_list {
+            Object::Sym(tag, true) => {
+                let Some(handler_block @ Object::List(_)) = clauses.pop()
+                else {
+                    return Err(error!(
+                        "'match' clause expects List after Symbol tag"
+                    ));
+                };
+
+                if subject == tag {
+                    ctx.eval(&handler_block)?;
+                    return Ok(());
+                }
+            }
+            else_block @ Object::List(_) => {
+                ctx.eval(&else_block)?;
+                return Ok(());
+            }
+            _ => return Err(error!("expected handler to have tag (Symbol)")),
+        }
+    }
+
+    throw(ctx, "no-match")
 }
 
 fn throw(ctx: &mut AoclaCtx, tag: &str) -> std::result::Result<(), AoclaError> {

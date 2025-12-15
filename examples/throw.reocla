@@ -9,9 +9,9 @@
         [
             [$n 5 is-multiple-of]
             ['buzz throw]
-            [$n println] ifelse
-        ] ifelse
-    ] ifelse
+            [$n println] if-else
+        ] if-else
+    ] if-else
 ] 'fizz-buzz proc
 
 1 (n)

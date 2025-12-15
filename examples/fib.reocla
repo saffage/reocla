@@ -1,0 +1,11 @@
+[(n)
+    [$n 1 <=]
+    [$n]
+    [
+        $n 1 - fib (a) ; "a: " $a str | println drop
+        $n 2 - fib (b) ; "b: " $b str | println drop
+        $b $a +
+    ] if-else
+] 'fib proc
+
+10 fib println

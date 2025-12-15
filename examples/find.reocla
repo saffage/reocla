@@ -5,7 +5,7 @@
       #t (found)
     ] [
       $i 1 + (i)
-    ] ifelse
+    ] if-else
   ] while
   $i
 ] 'find proc

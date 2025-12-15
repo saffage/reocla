@@ -15,7 +15,7 @@ impl AoclaError {
 
 impl fmt::Display for AoclaError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        writeln!(f, "Error occured: {}", self.message)
+        writeln!(f, "Error occurred: {}", self.message)
     }
 }
 
@@ -27,14 +27,21 @@ macro_rules! error {
     };
 }
 
+macro_rules! bail {
+    ($($arg:tt)*) => {
+        return Err(error!($($arg)*))
+    };
+}
+
+pub(crate) use bail;
 pub(crate) use error;
 
 pub fn string_to_error(err: String) -> AoclaError {
-    error!("{}", err)
+    error!("{err}")
 }
 
 pub fn to_error(err: impl Error) -> AoclaError {
-    error!("{}", err)
+    error!("{err}")
 }
 
 pub type Result<T = ()> = std::result::Result<T, AoclaError>;

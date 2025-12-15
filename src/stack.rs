@@ -1,32 +1,37 @@
 use crate::error::*;
-use crate::parser::Object;
 
-#[derive(Default)]
-pub struct Stack(Vec<Object>);
+#[derive(Debug, Clone)]
+pub struct Stack<T>(Vec<T>);
 
-impl Stack {
-    pub fn push(&mut self, o: Object) {
+impl<T> Default for Stack<T> {
+    fn default() -> Self {
+        Self(Default::default())
+    }
+}
+
+impl<T> Stack<T> {
+    pub fn push(&mut self, o: T) {
         self.0.push(o);
     }
 
-    pub fn extend(&mut self, objs: &[Object]) {
-        self.0.extend_from_slice(objs);
-    }
-
-    pub fn pop(&mut self) -> Result<Object> {
+    pub fn pop(&mut self) -> Result<T> {
         check_boundaries(self.0.pop())
     }
 
-    pub fn peek(&self) -> Result<&Object> {
+    pub fn peek(&self) -> Result<&T> {
         check_boundaries(self.0.last())
     }
 
-    pub fn peek_mut(&mut self) -> Result<&mut Object> {
+    pub fn peek_mut(&mut self) -> Result<&mut T> {
         check_boundaries(self.0.last_mut())
     }
 
     pub fn len(&self) -> usize {
         self.0.len()
+    }
+
+    pub fn into_inner(self) -> Vec<T> {
+        self.0
     }
 }
 

@@ -1,7 +1,7 @@
 use std::cmp::Ordering;
 use std::collections::HashMap;
 use std::io::Write;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::{env, fs, io, str};
 
 mod error;
@@ -14,22 +14,19 @@ use stack::Stack;
 
 type ProcFrame = HashMap<String, Object>;
 
-enum Proc<F = fn(&mut AoclaCtx) -> Result>
-where
-    F: Fn(&mut AoclaCtx) -> Result,
-{
+enum Proc {
     Aocla { body: Object, frame: ProcFrame },
-    Rust(F),
+    Rust(fn(&mut AoclaCtx) -> Result),
 }
 
 #[derive(Default)]
 struct AoclaCtx {
-    stack: Stack,
+    filename: String,
+    stack: Stack<Object>,
     handlers: HashMap<String, Object>,
     proc: HashMap<String, Proc>,
     frame: ProcFrame,
     cur_proc_name: Option<String>,
-    cur_object: Option<Object>,
 }
 
 impl AoclaCtx {
@@ -88,13 +85,25 @@ impl AoclaCtx {
         self.add_rust_proc("println", print_proc);
         self.add_rust_proc("proc", proc_proc);
         self.add_rust_proc("if", proc_if);
-        self.add_rust_proc("ifelse", proc_if);
+        self.add_rust_proc("if-else", proc_if);
         self.add_rust_proc("while", proc_while);
         self.add_rust_proc("len", proc_len);
+        self.add_rust_proc("head", proc_head);
+        self.add_rust_proc("tail", proc_tail);
         self.add_rust_proc("eval", proc_eval);
         self.add_rust_proc("catch", proc_catch);
         self.add_rust_proc("throw", proc_throw);
         self.add_rust_proc("match", proc_match);
+        self.add_rust_proc("str", proc_str);
+        self.add_rust_proc("int", proc_int);
+        self.add_rust_proc("read-file", proc_read_file);
+        self.add_rust_proc("read-lines", proc_read_lines);
+        self.add_rust_proc("write-file", proc_write_file);
+        self.add_rust_proc("write-lines", proc_write_lines);
+        self.add_rust_proc("write-stack", proc_write_stack);
+        self.add_rust_proc("import", proc_import);
+        self.add_string_proc("inc", "1 +")?;
+        self.add_string_proc("dec", "1 -")?;
         self.add_string_proc("dup", "(x) $x $x")?;
         self.add_string_proc("swap", "(x y) $y $x")?;
         self.add_string_proc("drop", "(_)")?;
@@ -180,20 +189,19 @@ impl AoclaCtx {
 
     fn eval(&mut self, root_obj: &Object) -> Result {
         let Object::List(root_obj_list) = &root_obj else {
-            return Err(error!("Root object must be of type List"));
+            bail!("Root object must be of type List");
         };
 
         for obj in root_obj_list {
-            self.cur_object = Some(obj.clone());
             match &obj {
                 Object::Tuple(tuple, is_quoted) => {
                     if *is_quoted {
                         self.dequote_and_push(obj.clone());
                     } else {
                         if self.stack.len() < tuple.len() {
-                            return Err(error!(
-                                "Out of stack while capturing local variable"
-                            ));
+                            bail!(
+                                "Out of stack while capturing local variable",
+                            );
                         }
                         self.eval_tuple(tuple)?;
                     }
@@ -210,6 +218,13 @@ impl AoclaCtx {
         }
         Ok(())
     }
+
+    fn throw(&mut self, tag: &str) -> std::result::Result<(), AoclaError> {
+        match self.handlers.get(tag) {
+            Some(handler_block) => self.eval(&handler_block.clone()),
+            None => Err(error!("unhandled exception '{tag}")),
+        }
+    }
 }
 
 fn proc_arithmetic(ctx: &mut AoclaCtx) -> Result {
@@ -217,52 +232,45 @@ fn proc_arithmetic(ctx: &mut AoclaCtx) -> Result {
     let a_obj = ctx.stack.pop()?;
 
     let (Object::Int(b), Object::Int(a)) = (b_obj, a_obj) else {
-        return Err(error!("Both objects must be of type Int"));
+        bail!("Both objects must be of type Int");
     };
 
-    if b == 0 {
-        return throw(ctx, "div-by-zero");
-    }
-
-    ctx.stack.push(Object::Int(match ctx.cur_proc_name()? {
-        "+" => a + b,
-        "-" => a - b,
-        "*" => a * b,
-        "/" => a / b,
+    let result = match ctx.cur_proc_name()? {
+        "+" => a.checked_add(b),
+        "-" => a.checked_sub(b),
+        "*" => a.checked_mul(b),
+        "/" => {
+            if b == 0 {
+                return ctx.throw("div-by-zero");
+            }
+            a.checked_div(b)
+        }
         _ => unreachable!(),
-    }));
-    Ok(())
+    };
+
+    match result {
+        Some(value) => {
+            ctx.stack.push(Object::Int(value));
+            Ok(())
+        }
+        None => ctx.throw("overflow"),
+    }
 }
 
 fn proc_compare(ctx: &mut AoclaCtx) -> Result {
     let b_obj = ctx.stack.pop()?;
     let a_obj = ctx.stack.pop()?;
 
-    use Object::*;
-    let ord = match (&a_obj, &b_obj) {
-        (Int(a), Int(b)) => a.cmp(b),
-        (Bool(a), Bool(b)) => a.cmp(b),
-        (Str(a), Str(b))
-        | (Sym(a, _), Sym(b, _))
-        | (Str(a), Sym(b, _))
-        | (Sym(b, _), Str(a)) => a.cmp(b),
-        (List(a), List(b))
-        | (Tuple(a, _), Tuple(b, _))
-        | (List(a), Tuple(b, _))
-        | (Tuple(b, _), List(a)) => a.len().cmp(&b.len()),
-        _ => {
-            ctx.stack.extend(&[b_obj, a_obj]);
-            return Err(error!("Unable to compare two objects"));
-        }
-    };
+    let ord = a_obj.cmp(&b_obj);
 
+    use Ordering::*;
     ctx.stack.push(Object::Bool(match ctx.cur_proc_name()? {
-        "=" => ord == Ordering::Equal,
-        "<>" => ord != Ordering::Equal,
-        ">=" => ord == Ordering::Equal || ord == Ordering::Greater,
-        "<=" => ord == Ordering::Equal || ord == Ordering::Less,
-        ">" => ord == Ordering::Greater,
-        "<" => ord == Ordering::Less,
+        "=" => ord == Equal,
+        "<>" => ord != Equal,
+        ">=" => ord == Equal || ord == Greater,
+        "<=" => ord == Equal || ord == Less,
+        ">" => ord == Greater,
+        "<" => ord == Less,
         _ => unreachable!(),
     }));
     Ok(())
@@ -275,14 +283,14 @@ fn proc_boolean(ctx: &mut AoclaCtx) -> Result {
         if let Object::Bool(b) = ctx.stack.pop()? {
             ctx.stack.push(Object::Bool(!b));
         } else {
-            return Err(error!("Expected object of type Bool"));
+            bail!("Expected object of type Bool");
         }
     } else {
         let b_obj = ctx.stack.pop()?;
         let a_obj = ctx.stack.pop()?;
 
         let (Object::Bool(a), Object::Bool(b)) = (a_obj, b_obj) else {
-            return Err(error!("Both objects must be of type Bool"));
+            bail!("Both objects must be of type Bool");
         };
 
         ctx.stack.push(Object::Bool(match ctx.cur_proc_name()? {
@@ -303,34 +311,23 @@ fn proc_concat(ctx: &mut AoclaCtx) -> Result {
             Object::Tuple([a, b].concat(), is_quoted)
         }
         (Object::List(a), Object::List(b)) => Object::List([a, b].concat()),
-        (Object::Str(a), Object::Str(b)) => Object::Str([a, b].concat()),
         _ => {
-            return Err(error!(
-                "Only objects of type List, Tuple or Str can be concatenated"
-            ))
+            bail!("Only objects of type List, Tuple or Str can be concatenated")
         }
     });
     Ok(())
 }
 
 fn print_proc(ctx: &mut AoclaCtx) -> Result {
-    fn print_object(obj: &Object) {
-        use Object::*;
-        match obj {
-            Int(i) => print!("{}", i),
-            List(s) | Tuple(s, _) => {
-                for o in s {
-                    print_object(o);
-                    print!(" ");
-                }
-            }
-            Str(s) => print!("{}", s),
-            Bool(b) => print!("{}", b),
-            Sym(s, _) => print!("{}", s),
+    let s = {
+        let obj = ctx.stack.peek()?;
+        let s: Result<String> = obj.clone().try_into();
+        match s {
+            Ok(s) => s,
+            Err(_) => obj.to_string(),
         }
-    }
-
-    print_object(ctx.stack.peek()?);
+    };
+    print!("{s}");
 
     let should_print_nl = ctx.cur_proc_name().is_ok_and(|s| s == "println");
 
@@ -344,16 +341,14 @@ fn print_proc(ctx: &mut AoclaCtx) -> Result {
 
 fn proc_proc(ctx: &mut AoclaCtx) -> Result {
     let Object::Sym(name, _) = ctx.stack.pop()? else {
-        return Err(error!(
-            "The object naming the procedure must be of type Symbol"
-        ));
+        bail!("The object naming the procedure must be of type Symbol");
     };
 
     let body = ctx.stack.pop()?;
     if !matches!(body, Object::List(_)) {
-        return Err(error!(
+        bail!(
             "The object representing the body of the procedure must be of type List"
-        ));
+        );
     }
 
     let frame = ctx.frame.clone();
@@ -364,7 +359,7 @@ fn proc_proc(ctx: &mut AoclaCtx) -> Result {
 }
 
 fn proc_if(ctx: &mut AoclaCtx) -> Result {
-    let else_branch = if ctx.cur_proc_name().is_ok_and(|s| s == "ifelse") {
+    let else_branch = if ctx.cur_proc_name().is_ok_and(|s| s == "if-else") {
         Some(ctx.stack.pop()?)
     } else {
         None
@@ -372,26 +367,26 @@ fn proc_if(ctx: &mut AoclaCtx) -> Result {
 
     let if_branch = ctx.stack.pop()?;
     if !matches!(if_branch, Object::List(_)) {
-        return Err(error!("`if` branch must be of type List"));
+        bail!("`if` branch must be of type List");
     }
 
     let cond = ctx.stack.pop()?;
     if !matches!(cond, Object::List(_)) {
-        return Err(error!(
+        bail!(
             "`if` condition must be of type List, that push Bool value to stack"
-        ));
+        );
     }
 
     ctx.eval(&cond)?;
     let Object::Bool(state) = ctx.stack.pop()? else {
-        return Err(error!("`if` condition must push Bool value to stack"));
+        bail!("`if` condition must push Bool value to stack");
     };
 
     if state {
         ctx.eval(&if_branch)?;
     } else if let Some(o) = else_branch {
         if !matches!(o, Object::List(_)) {
-            return Err(error!("`else` branch must be of type List"));
+            bail!("`else` branch must be of type List");
         }
         ctx.eval(&o)?;
     }
@@ -401,22 +396,20 @@ fn proc_if(ctx: &mut AoclaCtx) -> Result {
 fn proc_while(ctx: &mut AoclaCtx) -> Result {
     let body = ctx.stack.pop()?;
     if !matches!(body, Object::List(_)) {
-        return Err(error!("`while` body must be of type List"));
+        bail!("`while` body must be of type List");
     }
 
     let cond = ctx.stack.pop()?;
     if !matches!(cond, Object::List(_)) {
-        return Err(error!(
+        bail!(
             "`while` condition must be of type List, that push Bool value to stack"
-        ));
+        );
     }
 
     loop {
         ctx.eval(&cond)?;
         let Object::Bool(state) = ctx.stack.pop()? else {
-            return Err(error!(
-                "`while` condition must push Bool value to stack"
-            ));
+            bail!("`while` condition must push Bool value to stack");
         };
         if !state {
             break;
@@ -428,37 +421,26 @@ fn proc_while(ctx: &mut AoclaCtx) -> Result {
 
 fn proc_get(ctx: &mut AoclaCtx) -> Result {
     let Object::Int(index) = ctx.stack.pop()? else {
-        return Err(error!(
-            "Sequences can be indexed only by object of type Int"
-        ));
+        bail!("Sequences can be indexed only by object of type Int");
     };
 
     if index.is_negative() {
-        return Err(error!(
-            "Only numbers that are >= 0 can be used as index for sequences (got {})",
-            index
-        ));
+        return ctx.throw("index-error");
     }
 
     let index = index as usize;
 
     match ctx.stack.pop()? {
-        Object::List(s) | Object::Tuple(s, _) => ctx.stack.push(
-            s.get(index)
-                .ok_or(error!("Out of sequence bounds"))?
-                .clone(),
-        ),
-        Object::Str(s) => ctx.stack.push(Object::Str(format!(
-            "{}",
-            s.chars().nth(index).ok_or(error!("Out of string bounds"))?
-        ))),
-        _ => {
-            return Err(error!(
-                "Only objects of type List, Tuple or Str can be indexed"
-            ))
+        Object::List(s) | Object::Tuple(s, _) => {
+            if let Some(s) = s.get(index) {
+                ctx.stack.push(s.clone());
+                Ok(())
+            } else {
+                ctx.throw("index-error")
+            }
         }
+        _ => bail!("Only objects of type List, Tuple or Str can be indexed"),
     }
-    Ok(())
 }
 
 fn proc_append(ctx: &mut AoclaCtx) -> Result {
@@ -466,7 +448,7 @@ fn proc_append(ctx: &mut AoclaCtx) -> Result {
     let a_obj = ctx.stack.peek_mut()?;
 
     let (Object::List(a), b) = (a_obj, b_obj) else {
-        return Err(error!("Only objects of type List can use `->` procedure"));
+        bail!("Only objects of type List can use `->` procedure");
     };
 
     a.push(b);
@@ -479,7 +461,7 @@ fn proc_prepend(ctx: &mut AoclaCtx) -> Result {
     let a_obj = ctx.stack.peek_mut()?;
 
     let (Object::List(a), b) = (a_obj, b_obj) else {
-        return Err(error!("Only objects of type List can use `<-` procedure"));
+        bail!("Only objects of type List can use `<-` procedure");
     };
 
     a.insert(0, b);
@@ -492,14 +474,39 @@ fn proc_len(ctx: &mut AoclaCtx) -> Result {
         Object::List(s) | Object::Tuple(s, _) => {
             ctx.stack.push(Object::Int(s.len() as _))
         }
-        Object::Str(s) => ctx.stack.push(Object::Int(s.len() as _)),
         _ => {
-            return Err(error!(
-                "Only objects of type List, Tuple or Str can have length"
-            ))
+            bail!("Only objects of type List or Tuple can have length")
         }
     }
     Ok(())
+}
+
+fn proc_head(ctx: &mut AoclaCtx) -> Result {
+    match ctx.stack.pop()? {
+        Object::List(objs) | Object::Tuple(objs, _) => {
+            if let Some(obj) = objs.first() {
+                ctx.stack.push(obj.clone());
+                Ok(())
+            } else {
+                ctx.throw("index-error")
+            }
+        }
+        _ => bail!("`head` expects list or tuple"),
+    }
+}
+
+fn proc_tail(ctx: &mut AoclaCtx) -> Result {
+    match ctx.stack.pop()? {
+        Object::List(objs) | Object::Tuple(objs, _) => {
+            if let Some((_, tail)) = objs.split_first() {
+                ctx.stack.push(Object::List(tail.to_vec()));
+                Ok(())
+            } else {
+                ctx.throw("index-error")
+            }
+        }
+        _ => bail!("`tail` expects list or tuple"),
+    }
 }
 
 fn proc_cons(ctx: &mut AoclaCtx) -> Result {
@@ -519,50 +526,47 @@ fn proc_cons(ctx: &mut AoclaCtx) -> Result {
             });
         }
         _ => {
-            return Err(error!(
-                "Only objects of type List or Tuple can use `::` procedure"
-            ))
+            bail!("Only objects of type List or Tuple can use `::` procedure")
         }
     }
     Ok(())
 }
 
 fn proc_eval(ctx: &mut AoclaCtx) -> Result {
-    let obj = ctx.stack.pop()?;
-    if !matches!(obj, Object::List(_)) {
-        return Err(error!("Only objects of type List can be evaluated"));
-    }
+    let obj @ Object::List(_) = ctx.stack.pop()? else {
+        bail!("`eval` expects List to evaluate");
+    };
     ctx.eval(&obj)
 }
 
 fn proc_catch(ctx: &mut AoclaCtx) -> Result {
     let Object::Tuple(mut tag_pairs, false) = ctx.stack.pop()? else {
-        return Err(error!("'catch' expects tuple of handlers ('sym [...])"));
+        bail!("'catch' expects tuple of handlers ('sym [...])");
     };
 
     let old_handlers = ctx.handlers.clone();
 
     if tag_pairs.is_empty() {
-        return Err(error!("'catch' expected at least 1 handler"));
+        bail!("'catch' expected at least 1 handler");
     }
     loop {
         let Some(sym) = tag_pairs.pop() else {
             break;
         };
         let Object::Sym(sym, true) = sym else {
-            return Err(error!("expected handler to have tag (symbol)"));
+            bail!("expected handler to have tag (symbol)");
         };
         let Some(handler) = tag_pairs.pop() else {
-            return Err(error!("expected even elements count for handler"));
+            bail!("expected even elements count for handler");
         };
         let Object::List(handler_block) = handler else {
-            return Err(error!("expected even elements count for handler"));
+            bail!("expected even elements count for handler");
         };
         ctx.handlers.insert(sym, Object::List(handler_block));
     }
 
     let try_block @ Object::List(_) = ctx.stack.pop()? else {
-        return Err(error!("'catch' expects list to try"));
+        bail!("'catch' expects list to try");
     };
 
     ctx.eval(&try_block)?;
@@ -573,17 +577,17 @@ fn proc_catch(ctx: &mut AoclaCtx) -> Result {
 
 fn proc_throw(ctx: &mut AoclaCtx) -> Result {
     let Object::Sym(tag, false) = ctx.stack.pop()? else {
-        return Err(error!("'throw' expects tag to catch"));
+        bail!("'throw' expected tag to catch");
     };
-    throw(ctx, &tag)
+    ctx.throw(&tag)
 }
 
 fn proc_match(ctx: &mut AoclaCtx) -> Result {
     let Ok(Object::Tuple(mut clauses, _)) = ctx.stack.pop() else {
-        return Err(error!("'match' expects tuple of clauses"));
+        bail!("'match' expects tuple of clauses");
     };
     let Ok(Object::Sym(subject, _)) = ctx.stack.pop() else {
-        return Err(error!("'match' clause expects subject (sym)"));
+        bail!("'match' clause expects subject (sym)");
     };
 
     while let Some(tag_or_list) = clauses.pop() {
@@ -591,9 +595,7 @@ fn proc_match(ctx: &mut AoclaCtx) -> Result {
             Object::Sym(tag, true) => {
                 let Some(handler_block @ Object::List(_)) = clauses.pop()
                 else {
-                    return Err(error!(
-                        "'match' clause expects List after Symbol tag"
-                    ));
+                    bail!("'match' clause expects List after Symbol tag");
                 };
 
                 if subject == tag {
@@ -605,30 +607,169 @@ fn proc_match(ctx: &mut AoclaCtx) -> Result {
                 ctx.eval(&else_block)?;
                 return Ok(());
             }
-            _ => return Err(error!("expected handler to have tag (Symbol)")),
+            _ => bail!("expected handler to have tag (Symbol)"),
         }
     }
 
-    throw(ctx, "no-match")
+    ctx.throw("no-match")
 }
 
-fn throw(ctx: &mut AoclaCtx, tag: &str) -> std::result::Result<(), AoclaError> {
-    match ctx.handlers.get(tag) {
-        Some(handler_block) => ctx.eval(&handler_block.clone()),
-        None => Err(error!("unhandled exception '{tag}")),
+fn proc_str(ctx: &mut AoclaCtx) -> Result {
+    let object = ctx.stack.pop()?;
+    ctx.stack.push(object.to_string().into());
+    Ok(())
+}
+
+fn proc_int(ctx: &mut AoclaCtx) -> Result {
+    let Ok(s): Result<String> = ctx.stack.pop()?.try_into() else {
+        bail!("'int' expects Str input");
+    };
+    match s.parse() {
+        Ok(value) => {
+            ctx.stack.push(Object::Int(value));
+            Ok(())
+        }
+        Err(_) => ctx.throw("parse-error"),
     }
 }
 
-fn eval_file<P>(filename: P) -> Result
-where
-    P: AsRef<Path>,
-{
+fn proc_read_file(ctx: &mut AoclaCtx) -> Result {
+    read_file(ctx, |ctx, content| {
+        ctx.stack.push(content.into());
+        Ok(())
+    })
+}
+
+fn proc_read_lines(ctx: &mut AoclaCtx) -> Result {
+    read_file(ctx, |ctx, content| {
+        ctx.stack.push(Object::List(
+            content
+                .lines()
+                .map(|line| line.to_string().into())
+                .collect(),
+        ));
+        Ok(())
+    })
+}
+
+fn proc_write_file(ctx: &mut AoclaCtx) -> Result {
+    let Ok(filepath): Result<String> = ctx.stack.pop()?.try_into() else {
+        bail!("expected filepath (String) to write file");
+    };
+    let Ok(content): Result<String> = ctx.stack.pop()?.try_into() else {
+        bail!("expected content (String) to write file");
+    };
+    write_file(ctx, &filepath, &content)
+}
+
+fn proc_write_lines(ctx: &mut AoclaCtx) -> Result {
+    let Ok(filepath): Result<String> = ctx.stack.pop()?.try_into() else {
+        bail!("expected filepath (String) to write file");
+    };
+    let Object::List(lines) = ctx.stack.pop()? else {
+        bail!("expected lines (List(String)) to write file");
+    };
+    let Some(content) =
+        lines
+            .into_iter()
+            .try_fold(String::new(), |mut lines, line| {
+                let Ok(line): Result<String> = line.try_into() else {
+                    return None;
+                };
+                lines.push_str(&line);
+                Some(lines)
+            })
+    else {
+        bail!("expected lines to be list of strings");
+    };
+    write_file(ctx, &filepath, &content)
+}
+
+fn proc_write_stack(ctx: &mut AoclaCtx) -> Result {
+    let stack = ctx.stack.clone();
+    let objs = stack.into_inner();
+
+    print!("Stack: ");
+    if !objs.is_empty() {
+        print!("{}", objs[0]);
+        for obj in &objs[1..] {
+            print!(", {obj}");
+        }
+    }
+    println!();
+
+    Ok(())
+}
+
+fn proc_import(ctx: &mut AoclaCtx) -> Result {
+    fn resolve_relative(
+        reference_file: impl AsRef<Path>,
+        relative: impl AsRef<Path>,
+    ) -> PathBuf {
+        reference_file
+            .as_ref()
+            .parent()
+            .unwrap()
+            .join(relative)
+            .components()
+            .collect()
+    }
+    let Ok(filename): Result<String> = ctx.stack.pop()?.try_into() else {
+        bail!("'imports' requires filename");
+    };
+    if !ctx.filename.is_empty() {
+        ctx.filename = resolve_relative(&ctx.filename, &filename)
+            .to_str()
+            .unwrap()
+            .to_owned();
+    }
+    let imported_obj = parse_file(&ctx.filename)?;
+    ctx.eval(&imported_obj)
+}
+
+fn read_file(
+    ctx: &mut AoclaCtx,
+    f: impl FnOnce(&mut AoclaCtx, String) -> Result,
+) -> Result {
+    let Ok(filepath): Result<String> = ctx.stack.pop()?.try_into() else {
+        bail!("expected filepath to read file");
+    };
+    match std::fs::read_to_string(filepath) {
+        Ok(content) => f(ctx, content),
+        Err(err) => match err.kind() {
+            io::ErrorKind::NotFound => ctx.throw("file-not-found"),
+            io::ErrorKind::PermissionDenied => ctx.throw("permission-denied"),
+            io::ErrorKind::InvalidData => ctx.throw("invalid-data"),
+            _ => ctx.throw("io"),
+        },
+    }
+}
+
+fn write_file(ctx: &mut AoclaCtx, filepath: &str, content: &str) -> Result {
+    match std::fs::write(filepath, content) {
+        Ok(_) => Ok(()),
+        Err(err) => match err.kind() {
+            io::ErrorKind::AlreadyExists => ctx.throw("file-exist"),
+            io::ErrorKind::InvalidInput => ctx.throw("invalid-data"),
+            io::ErrorKind::NotFound => ctx.throw("file-not-found"),
+            io::ErrorKind::PermissionDenied => ctx.throw("permission-denied"),
+            _ => ctx.throw("io"),
+        },
+    }
+}
+
+fn parse_file(filename: impl AsRef<Path>) -> Result<Object> {
     let buf = fs::read_to_string(filename)
         .map_err(|err| error!("Failed to read file: {}", err))?;
 
-    let root_obj = parser::parse_root(&buf).map_err(string_to_error)?;
+    parser::parse_root(&buf).map_err(string_to_error)
+}
 
+fn eval_file(filename: impl AsRef<Path>) -> Result {
+    let filename = filename.as_ref().to_string_lossy().into_owned().to_string();
+    let root_obj = parse_file(&filename)?;
     let mut ctx = AoclaCtx::new()?;
+    ctx.filename = filename;
     ctx.eval(&root_obj)?;
 
     Ok(())

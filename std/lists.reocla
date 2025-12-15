@@ -1,0 +1,25 @@
+[(a f)
+  0 [] (i r)
+  [$i $a len <] [
+    $r
+    $a $i @
+    $f eval
+    -> (r)
+    $i 1 + (i)
+  ] while
+  $r
+] 'map proc
+
+[(items item)
+    0 (i)
+    -1 (index)
+    $items len (n)
+    [$i $n <] [
+        [$items $i @ $item =] [
+            $i (index)
+            $n (n) ; break
+        ] if
+        $i inc (i)
+    ] while
+    $index
+] 'find proc

@@ -1,0 +1,41 @@
+[(s mid)
+    0 (i)
+    $s len (n)
+    "" "" (l r)
+    [$i $mid <] [
+        $l [] $s $i @ <- | (l)
+        $i inc (i)
+    ] while
+    [$i $n <] [
+        $r [] $s $i @ <- | (r)
+        $i inc (i)
+    ] while
+    $r $l
+] 'split proc
+
+[(s pred)
+    0 (i)
+    $s len (n)
+    [] (parts)
+    [$i $n <] [
+        [$s $i @ $pred eval] [
+            $parts $s $i split
+            swap :: swap drop (s)
+            -> (parts)
+            $s len (n)
+            0 (i)
+        ] if
+        $i inc (i)
+    ] while
+    [$parts len 0 =] [$s] [$parts $s ->] if-else
+] 'split-by proc
+
+[(s)
+    $s len (n)
+    0 (i)
+    $n 1 - (j)
+    [[$i $n <] [$s $i @ ' ' =] if] [$i inc (i)] while
+    [[$j 0 >=] [$s $j @ ' ' =] if] [$j dec (j)] while
+    $s $j 1 + split swap drop
+    $i split drop
+] 'trim proc

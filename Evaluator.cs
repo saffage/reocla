@@ -174,10 +174,10 @@ public class Evaluator
     }
 
     public EvalException Error(string message, LineInfo? location = null)
-        => new(message, location, new Stack<CallSite>(CallStack));
+        => new(message, location ?? CurrentProcInfo, new Stack<CallSite>(CallStack));
 
     public TypeException TypeMismatch(string message, LineInfo? location = null)
-        => new(message, location, new Stack<CallSite>(CallStack));
+        => new(message, location ?? CurrentProcInfo, new Stack<CallSite>(CallStack));
 }
 
 public sealed record CallSite(string ProcName, LineInfo LineInfo)

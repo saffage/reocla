@@ -1,8 +1,18 @@
-[(a f)
+[(items pred)
+  0 [] (i filtered)
+  [$i $items len <] [
+    $items $i @ (item)
+    [$item $pred eval] [$filtered $item -> (filtered)] if
+    $i 1 + (i)
+  ] while
+  $filtered
+] 'filter proc
+
+[(items f)
   0 [] (i r)
-  [$i $a len <] [
+  [$i $items len <] [
     $r
-    $a $i @
+    $items $i @
     $f eval
     -> (r)
     $i 1 + (i)
@@ -10,16 +20,48 @@
   $r
 ] 'map proc
 
+[(items reducer accumulator)
+  0 (i)
+  [$i $items len <] [
+    $accumulator
+    $items $i @
+    $reducer eval (accumulator)
+    $i 1 + (i)
+  ] while
+  $accumulator
+] 'fold proc
+
 [(items item)
-    0 (i)
-    -1 (index)
-    $items len (n)
-    [$i $n <] [
-        [$items $i @ $item =] [
-            $i (index)
-            $n (n) ; break
-        ] if
-        $i inc (i)
-    ] while
-    $index
+  0 -1 (i index)
+  $items len (n)
+  [$i $n <] [
+    [$items $i @ $item =] [
+      $i (index)
+      $n (n) ; break
+    ] if
+    $i 1 + (i)
+  ] while
+  $index
 ] 'find proc
+
+[(items pred)
+  0 #t (i result)
+  $items len (n)
+  [$i $n <] [
+    $items $i @
+    [$pred eval not] [$n #f (i result)] if
+    $i 1 + (i)
+  ] while
+  $result
+] 'all proc
+
+[(items pred)
+  0 #f (i result)
+  $items len (n)
+  [$i $n <] [
+    $items $i @
+    [$pred eval] [$n #t (i result)] if
+    $i 1 + (i)
+  ] while
+  $result
+] 'any proc

@@ -22,5 +22,5 @@
         ["FizzBuzz" println] 'fizz-buzz
         [println]
     ) catch
-    $n inc (n)
+    $n 1 + (n)
 ] while

@@ -1,0 +1,7 @@
+[1 +]          'inc  proc
+[1 -]          'dec  proc
+[(x) $x $x]    'dup  proc
+[(x y) $y $x]  'swap proc
+[(_)]          'drop proc
+[:: drop]      'head proc
+[:: swap drop] 'tail proc

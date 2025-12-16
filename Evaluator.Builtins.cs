@@ -20,14 +20,14 @@ public static class Builtins
         void Register(string name, Action<Evaluator> proc) =>
             context.Procedures[name] = proc;
 
-        void RegisterFromString(string name, string body) =>
-            context.RegisterProc(name, Parser.Parse(body, context.Filename), []);
-
+        // Arithmetic operations
         Register("+", BuiltinArithmeticalOp);
         Register("-", BuiltinArithmeticalOp);
         Register("*", BuiltinArithmeticalOp);
         Register("/", BuiltinArithmeticalOp);
+        Register("%", BuiltinArithmeticalOp);
 
+        // Comparison operations
         Register("=", BuiltinComparisonOp);
         Register("<>", BuiltinComparisonOp);
         Register(">=", BuiltinComparisonOp);
@@ -35,16 +35,30 @@ public static class Builtins
         Register(">", BuiltinComparisonOp);
         Register("<", BuiltinComparisonOp);
 
+        // Boolean operators
+        Register("not", BuiltinBoolOp);
         Register("and", BuiltinBoolOp);
         Register("or", BuiltinBoolOp);
-        Register("not", BuiltinBoolOp);
 
+        // Sequence operators
         Register("|", BuiltinConcat);
         Register("::", BuiltinCons);
         Register("@", BuiltinGet);
         Register("->", BuiltinAppend);
         Register("<-", BuiltinPrepend);
+        Register("len", BuiltinLen);
 
+        // Magic
+        Register("eval", BuiltinEval);
+        Register("catch", BuiltinCatch);
+        Register("throw", BuiltinThrow);
+        Register("match", BuiltinMatch);
+
+        // itoa/atoi
+        Register("str", BuiltinToStr);
+        Register("int", BuiltinToInt);
+
+        // I/O
         Register("print", (e) => BuiltinPrint(e, false));
         Register("println", (e) => BuiltinPrint(e, true));
         Register("proc", BuiltinDefineProc);
@@ -52,30 +66,13 @@ public static class Builtins
         Register("if-else", BuiltinIf);
         Register("while", BuiltinWhile);
 
-        Register("len", BuiltinLen);
-        Register("head", BuiltinHead);
-        Register("tail", BuiltinTail);
-
-        Register("eval", BuiltinEval);
-        Register("catch", BuiltinCatch);
-        Register("throw", BuiltinThrow);
-        Register("match", BuiltinMatch);
-
-        Register("str", BuiltinToStr);
-        Register("int", BuiltinToInt);
-
+        // Files I/O
         Register("read-file", BuiltinReadFile);
         Register("read-lines", BuiltinReadLines);
         Register("write-file", BuiltinWriteFile);
         Register("write-lines", BuiltinWriteLines);
         Register("write-stack", BuiltinWriteStack);
         Register("import", BuiltinImport);
-
-        RegisterFromString("inc", "1 +");
-        RegisterFromString("dec", "1 -");
-        RegisterFromString("dup", "(x) $x $x");
-        RegisterFromString("swap", "(x y) $y $x");
-        RegisterFromString("drop", "(_)");
     }
 
     public static void BuiltinArithmeticalOp(Evaluator e)
@@ -88,7 +85,7 @@ public static class Builtins
             throw e.TypeMismatch($"arithmetic requires both operands to be integers, got '{a.GetType().Name}' and '{b.GetType().Name}'");
         }
 
-        if (e.CurrentProcName == "/" && y.Value == 0)
+        if ((e.CurrentProcName == "/" || e.CurrentProcName == "%") && y.Value == 0)
         {
             e.Throw(DivByZeroErrorTag);
         }
@@ -99,6 +96,7 @@ public static class Builtins
             "-" => x.Value - y.Value,
             "*" => x.Value * y.Value,
             "/" => x.Value / y.Value,
+            "%" => x.Value % y.Value,
             _ => throw new UnreachableException($"Unexpected operation '{e.CurrentProcName}'")
         };
         e.Push(new Value.Number(result, e.CurrentProcInfo));
@@ -106,15 +104,23 @@ public static class Builtins
 
     public static void BuiltinComparisonOp(Evaluator e)
     {
+        static int? Compare(Value a, Value b) => (a, b) switch
+        {
+            (Value.String x, Value.String y) => x.Value.CompareTo(y.Value),
+            (Value.Number x, Value.Number y) => x.Value.CompareTo(y.Value),
+            (Value.Char x, Value.Char y) => x.Value.CompareTo(y.Value),
+            (Value.Bool x, Value.Bool y) => x.Value.CompareTo(y.Value),
+            (Value.List x, Value.List y) => (x == y) ? 0 : 1,
+            (Value.Tuple x, Value.Tuple y) => (x != y) ? 0 : 1,
+            (_, _) => null,
+        };
+
         var b = e.Pop();
         var a = e.Pop();
-
-        if (a.GetType() != b.GetType())
-        {
-            throw e.TypeMismatch($"cannot compare '{a.GetType().Name}' and '{b.GetType().Name}'");
-        }
-
-        int cmp = a.CompareTo(b);
+        var cmp = Compare(a, b) ??
+            throw e.TypeMismatch(
+                $"cannot compare '{a.GetType().Name}' and '{b.GetType().Name}'",
+                location: e.CurrentProcInfo);
 
         bool result = e.CurrentProcName switch
         {
@@ -186,6 +192,14 @@ public static class Builtins
         else if (a is Value.String sa && b is Value.String sb)
         {
             e.Push(new Value.String(sa.Value + sb.Value, e.CurrentProcInfo));
+        }
+        else if (a is Value.Char ca && b is Value.String sb2)
+        {
+            e.Push(new Value.String(ca.Value + sb2.Value, e.CurrentProcInfo));
+        }
+        else if (a is Value.String sa2 && b is Value.Char cb)
+        {
+            e.Push(new Value.String(sa2.Value + cb.Value, e.CurrentProcInfo));
         }
         else
         {

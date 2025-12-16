@@ -18,13 +18,13 @@ public class Evaluator
     public string? CurrentProcName => CurrentCall?.ProcName;
     public LineInfo CurrentProcInfo => CurrentCall?.LineInfo ?? new(Filename, 1, 1);
 
-    public Stack<Value> Stack = [];
-    public Stack<CallSite> CallStack = [];
+    public Stack<Value> Stack { get; private set; } = [];
+    public Stack<CallSite> CallStack { get; private set; } = [];
 
-    public Dictionary<string, Value> Handlers { get; set; } = [];
     public Value? UniversalHandler { get; set; }
+    public Dictionary<string, Value> Handlers { get; set; } = [];
     public Dictionary<string, Value> Scope { get; set; } = [];
-    public Dictionary<string, Action<Evaluator>> Procedures { get; } = [];
+    public Dictionary<string, Action<Evaluator>> Procedures { get; set; } = [];
 
     public Evaluator()
     {

@@ -141,7 +141,7 @@ public static class Builtins
             }
             else
             {
-                throw e.Error($"expected 'Bool', got '{a.GetType().Name}'");
+                throw e.TypeMismatch($"expected 'Bool', got '{a.GetType().Name}'");
             }
         }
         else
@@ -161,7 +161,7 @@ public static class Builtins
             }
             else
             {
-                throw e.Error($"expected both operand to be of type 'Bool', got '{a.GetType().Name}' and '{b.GetType().Name}'");
+                throw e.TypeMismatch($"expected both operand to be of type 'Bool', got '{a.GetType().Name}' and '{b.GetType().Name}'");
             }
         }
     }
@@ -238,11 +238,11 @@ public static class Builtins
 
         if (ifBranch is not Value.List)
         {
-            throw e.Error("then branch must be a 'List'");
+            throw e.TypeMismatch("then branch must be a 'List'");
         }
         if (cond is not Value.List)
         {
-            throw e.Error("condition must be a 'List'");
+            throw e.TypeMismatch("condition must be a 'List'");
         }
 
         e.Eval(cond);
@@ -257,14 +257,14 @@ public static class Builtins
             {
                 if (elseBranch is not Value.List)
                 {
-                    throw e.Error("else branch must be a 'List'");
+                    throw e.TypeMismatch("else branch must be a 'List'");
                 }
                 e.Eval(elseBranch);
             }
         }
         else
         {
-            throw e.Error("condition must push a 'Bool' value");
+            throw e.TypeMismatch("condition must push a 'Bool' value");
         }
     }
 
@@ -275,11 +275,11 @@ public static class Builtins
 
         if (body is not Value.List)
         {
-            throw e.Error("expected body be of type 'List'");
+            throw e.TypeMismatch("expected body be of type 'List'");
         }
         if (cond is not Value.List)
         {
-            throw e.Error("expected condition be of type 'List'");
+            throw e.TypeMismatch("expected condition be of type 'List'");
         }
 
         while (true)
@@ -293,7 +293,7 @@ public static class Builtins
             }
             else
             {
-                throw e.Error("condition must push a 'Bool'");
+                throw e.TypeMismatch("condition must push a 'Bool'");
             }
         }
     }
@@ -305,7 +305,7 @@ public static class Builtins
 
         if (indexValue is not Value.Number index)
         {
-            throw e.Error("index must be of type 'Int'");
+            throw e.TypeMismatch("index must be of type 'Int'");
         }
 
         int i = (int)index.Value;
@@ -350,7 +350,7 @@ public static class Builtins
         }
         else
         {
-            throw e.Error("expected 'List', 'Tuple' or 'String' to index");
+            throw e.TypeMismatch("expected 'List', 'Tuple' or 'String' to index");
         }
     }
 
@@ -377,12 +377,12 @@ public static class Builtins
             }
             else
             {
-                throw e.Error($"cannot append '{itemValue.GetType().Name}' to 'String'");
+                throw e.TypeMismatch($"cannot append '{itemValue.GetType().Name}' to 'String'");
             }
         }
         else
         {
-            throw e.Error($"expected 'List' or 'String', got '{listValue.GetType().Name}'");
+            throw e.TypeMismatch($"expected 'List' or 'String', got '{listValue.GetType().Name}'");
         }
     }
 
@@ -410,12 +410,12 @@ public static class Builtins
             }
             else
             {
-                throw e.Error($"cannot prepend '{itemValue.GetType().Name}' to 'String'");
+                throw e.TypeMismatch($"cannot prepend '{itemValue.GetType().Name}' to 'String'");
             }
         }
         else
         {
-            throw e.Error($"expected 'List' or 'String', got '{listValue.GetType().Name}'");
+            throw e.TypeMismatch($"expected 'List' or 'String', got '{listValue.GetType().Name}'");
         }
     }
 
@@ -426,7 +426,7 @@ public static class Builtins
             Value.List l => l.Items.Count,
             Value.Tuple t => t.Items.Count,
             Value.String s => s.Value.Length,
-            var obj => throw e.Error($"expected 'List', 'Tuple' or 'String', got '{obj.GetType().Name}'"),
+            var obj => throw e.TypeMismatch($"expected 'List', 'Tuple' or 'String', got '{obj.GetType().Name}'"),
         };
         e.Push(new Value.Number(len, e.CurrentProcInfo));
     }
@@ -553,7 +553,7 @@ public static class Builtins
         }
         else
         {
-            throw e.Error("expected 'List' to evaluate");
+            throw e.TypeMismatch("expected 'List' to evaluate");
         }
     }
 
@@ -564,11 +564,11 @@ public static class Builtins
 
         if (handlersValue is not Value.Tuple handlers || handlers.IsQuoted)
         {
-            throw e.Error("expected handlers as unquoted 'Tuple'");
+            throw e.TypeMismatch("expected handlers as unquoted 'Tuple'");
         }
         if (tryBlockValue is not Value.List tryBlock)
         {
-            throw e.Error("expected try block 'List'");
+            throw e.TypeMismatch("expected try block 'List'");
         }
 
         var oldHandlers = new Dictionary<string, Value>(e.Handlers);
@@ -580,13 +580,13 @@ public static class Builtins
 
             if (handlerValue is not Value.List handler)
             {
-                throw e.Error($"handler is not a 'List' but '{handlerValue.GetType().Name}'");
+                throw e.TypeMismatch($"handler is not a 'List' but '{handlerValue.GetType().Name}'");
             }
             if (tagValue is not null)
             {
                 if (tagValue is not Value.Symbol tag || !tag.IsQuoted)
                 {
-                    throw e.Error($"tag is not a 'Symbol' but '{tagValue.GetType().Name}'");
+                    throw e.TypeMismatch($"tag is not a 'Symbol' but '{tagValue.GetType().Name}'");
                 }
                 e.Handlers[tag.Name] = handler;
             }
@@ -608,7 +608,7 @@ public static class Builtins
         }
         else
         {
-            throw e.Error("expected exception tag as 'Symbol'");
+            throw e.TypeMismatch("expected exception tag as 'Symbol'");
         }
     }
 
@@ -619,11 +619,11 @@ public static class Builtins
 
         if (clausesValue is not Value.Tuple clauses)
         {
-            throw e.Error("expected clauses as unquoted 'Tuple'");
+            throw e.TypeMismatch("expected clauses as unquoted 'Tuple'");
         }
         if (subjectValue is not Value.Symbol subject)
         {
-            throw e.Error("expected subject as 'Symbol'");
+            throw e.TypeMismatch("expected subject as 'Symbol'");
         }
 
         for (int i = 0; i < clauses.Items.Count; i += 2)
@@ -633,13 +633,13 @@ public static class Builtins
 
             if (clauseValue is not Value.List clause)
             {
-                throw e.Error($"expected clause to be a 'List', got '{clauseValue.GetType().Name}'");
+                throw e.TypeMismatch($"expected clause to be a 'List', got '{clauseValue.GetType().Name}'");
             }
             if (tagValue is not null)
             {
                 if (tagValue is not Value.Symbol tag || !tag.IsQuoted)
                 {
-                    throw e.Error($"expected tag to be a 'Symbol', got '{tagValue.GetType().Name}'");
+                    throw e.TypeMismatch($"expected tag to be a 'Symbol', got '{tagValue.GetType().Name}'");
                 }
                 if (subject.Name == tag.Name)
                 {
@@ -681,7 +681,7 @@ public static class Builtins
         }
         else
         {
-            throw e.Error("expected 'String'");
+            throw e.TypeMismatch("expected 'String'");
         }
     }
 

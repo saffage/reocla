@@ -121,7 +121,7 @@ public class Parser
             return new Value.Number(result, info);
         }
 
-        throw Error($"Invalid integer format: {span}");
+        throw Error($"invalid integer format: {span}");
     }
 
     private Value.Char ParseChar()
@@ -189,7 +189,7 @@ public class Parser
             'f' => new Value.Bool(false, info),
 
             // TODO: escape char.
-            var c => throw Error($"Expected #t or #f for boolean, got '{c}'")
+            var c => throw Error($"expected #t or #f for boolean, got '{c}'")
         };
     }
 
@@ -215,7 +215,7 @@ public class Parser
         // If we didn't advance at all, it wasn't a valid symbol.
         if (_pos == start)
         {
-            throw Error("Unexpected character or empty symbol");
+            throw Error("unexpected character or empty symbol");
         }
 
         string name = _source[(int)start..(int)_pos];
@@ -324,7 +324,7 @@ public class Parser
     {
         if (IsEOF || _source[(int)_pos] != expected)
         {
-            throw Error($"Expected {expected}");
+            throw Error($"expected {expected}");
         }
         Advance();
     }

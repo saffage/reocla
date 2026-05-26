@@ -238,7 +238,7 @@ public static class Builtins
         {
             throw e.TypeMismatch("proc body must be a 'List'");
         }
-        e.RegisterProc(name.Name, body, new Dictionary<string, Value>(e.Scope));
+        e.RegisterProc(name.Name, body, e.Scope);
     }
 
     public static void BuiltinIf(Evaluator e)
